@@ -1,0 +1,16 @@
+{
+  "name": "teze-api",
+  "version": "1.0.0",
+  "description": "Teze homelab server control API",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "dockerode": "^4.0.4",
+    "express": "^4.19.2",
+    "systeminformation": "^5.23.9"
+  }
+}
