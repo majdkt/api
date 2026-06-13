@@ -5,6 +5,8 @@
  * POST /:id/start      – start a container
  * POST /:id/stop       – stop a container
  * POST /:id/restart    – restart a container
+ * POST /:id/remove     – force-remove a container
+ * POST /prune          – prune all stopped containers
  */
 
 import { Router } from 'express';
@@ -12,21 +14,23 @@ import Docker from 'dockerode';
 
 export const router = Router();
 
-// Connect to Docker via the Unix socket (default).
-// When running inside a container, mount /var/run/docker.sock.
-const docker = new Docker({ socketPath: '/var/run/docker.sock' });
+// Docker socket path is configurable via DOCKER_SOCKET env var.
+// Default: /var/run/docker.sock (standard Linux path).
+const docker = new Docker({
+  socketPath: process.env.DOCKER_SOCKET || '/var/run/docker.sock',
+});
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 function formatContainer(c) {
   return {
-    id: c.Id.slice(0, 12),
+    id:     c.Id.slice(0, 12),
     fullId: c.Id,
-    name: (c.Names?.[0] ?? '').replace(/^\//, ''),
-    image: c.Image,
+    name:   (c.Names?.[0] ?? '').replace(/^\//, ''),
+    image:  c.Image,
     status: c.Status,
-    state: c.State,            // 'running' | 'exited' | 'paused' …
+    state:  c.State,            // 'running' | 'exited' | 'paused' …
     created: c.Created,
-    ports: c.Ports ?? [],
+    ports:  c.Ports ?? [],
     labels: c.Labels ?? {},
   };
 }
@@ -86,7 +90,7 @@ router.post('/:id/remove', async (req, res, next) => {
   }
 });
 
-// ── POST /api/containers/prune ──────────────────────────────────────────────
+// ── POST /api/containers/prune ───────────────────────────────────────────────
 router.post('/prune', async (_req, res, next) => {
   try {
     const pruned = await docker.pruneContainers();
@@ -95,4 +99,3 @@ router.post('/prune', async (_req, res, next) => {
     next(err);
   }
 });
-

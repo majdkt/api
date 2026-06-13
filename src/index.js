@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import { router as containersRouter } from './routes/containers.js';
 import { router as systemRouter } from './routes/system.js';
@@ -9,14 +10,21 @@ const PORT = process.env.PORT || 3001;
 // ── Middleware ────────────────────────────────────────────────────────────────
 app.use(express.json());
 
-// CORS – allow the Astro dev server and production origins
+// CORS – allow Astro dev/preview servers plus any configured production origins.
+// FRONTEND_ORIGIN can be a single origin or a comma-separated list.
 app.use((req, res, next) => {
   const origin = req.headers.origin || '';
+
+  const configuredOrigins = (process.env.FRONTEND_ORIGIN ?? '')
+    .split(',')
+    .map(o => o.trim())
+    .filter(Boolean);
+
   const allowed = [
-    'http://localhost:4321',  // Astro dev
+    'http://localhost:4321',  // Astro dev  (always allowed in any environment)
     'http://localhost:4322',  // Astro preview
-    process.env.FRONTEND_ORIGIN,
-  ].filter(Boolean);
+    ...configuredOrigins,
+  ];
 
   if (allowed.includes(origin) || !origin) {
     res.setHeader('Access-Control-Allow-Origin', origin || '*');

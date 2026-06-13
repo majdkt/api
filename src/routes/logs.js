@@ -1,26 +1,27 @@
 /**
  * /api/logs
  *
- * GET /             – list available log sources
- * GET /:id          – tail logs from a Docker container (future: journald, files)
- *
- * This is a stub that is future-ready. Real streaming will be added
- * when the Termini integration is built.
+ * GET /      – list available log sources (Docker containers)
+ * GET /:id   – tail logs from a Docker container
  */
 
 import { Router } from 'express';
 import Docker from 'dockerode';
 
 export const router = Router();
-const docker = new Docker({ socketPath: '/var/run/docker.sock' });
+
+// Docker socket path is configurable via DOCKER_SOCKET env var.
+const docker = new Docker({
+  socketPath: process.env.DOCKER_SOCKET || '/var/run/docker.sock',
+});
 
 // List log sources (containers for now)
 router.get('/', async (_req, res, next) => {
   try {
     const containers = await docker.listContainers({ all: true });
     const sources = containers.map(c => ({
-      id: c.Id.slice(0, 12),
-      name: (c.Names?.[0] ?? '').replace(/^\//, ''),
+      id:    c.Id.slice(0, 12),
+      name:  (c.Names?.[0] ?? '').replace(/^\//, ''),
       state: c.State,
     }));
     res.json({ sources });
