@@ -73,3 +73,26 @@ router.post('/:id/restart', async (req, res, next) => {
     next(err);
   }
 });
+
+// ── POST /api/containers/:id/remove ──────────────────────────────────────────
+router.post('/:id/remove', async (req, res, next) => {
+  try {
+    const container = docker.getContainer(req.params.id);
+    // Force remove so it stops and removes in one go
+    await container.remove({ force: true });
+    res.json({ ok: true, action: 'remove', id: req.params.id });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── POST /api/containers/prune ──────────────────────────────────────────────
+router.post('/prune', async (_req, res, next) => {
+  try {
+    const pruned = await docker.pruneContainers();
+    res.json({ ok: true, action: 'prune', pruned });
+  } catch (err) {
+    next(err);
+  }
+});
+
