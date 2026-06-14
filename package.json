@@ -1,7 +1,7 @@
 {
-  "name": "teze-api",
+  "name": "server-dashboard-api",
   "version": "1.0.0",
-  "description": "Teze homelab server control API",
+  "description": "Server Dashboard homelab server control API",
   "main": "src/index.js",
   "type": "module",
   "scripts": {

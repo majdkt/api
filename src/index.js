@@ -53,5 +53,5 @@ app.use((err, _req, res, _next) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Teze API listening on http://0.0.0.0:${PORT}`);
+  console.log(`Server Dashboard API listening on http://0.0.0.0:${PORT}`);
 });
