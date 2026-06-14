@@ -8,27 +8,47 @@
 import { Router } from 'express';
 import si from 'systeminformation';
 import { exec } from 'child_process';
+import { createConnection } from 'net';
+import Docker from 'dockerode';
 
 export const router = Router();
 
-// Ping target is configurable via PING_HOST env var (default: 1.1.1.1)
-const PING_HOST = process.env.PING_HOST || '1.1.1.1';
+const PING_HOST   = process.env.PING_HOST   || '1.1.1.1';
+const DOCKER_SOCK = process.env.DOCKER_SOCKET || '/var/run/docker.sock';
+const docker      = new Docker({ socketPath: DOCKER_SOCK });
 
-// Whitelist of safe commands to run on the server
+// ── TCP-based latency fallback ────────────────────────────────────────────────
+// Used when ICMP ping is unavailable (no CAP_NET_RAW). Measures time to
+// establish a TCP connection to port 53 on the ping host.
+function tcpLatency(host, port = 53, timeoutMs = 3000) {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const socket = createConnection({ host, port, timeout: timeoutMs });
+    socket.on('connect', () => {
+      resolve(Date.now() - start);
+      socket.destroy();
+    });
+    socket.on('error',   () => { resolve(null); socket.destroy(); });
+    socket.on('timeout', () => { resolve(null); socket.destroy(); });
+  });
+}
+
+// ── Safe shell diagnostic commands ───────────────────────────────────────────
+// All commands are available after installing procps + iproute2 in the Dockerfile.
+// 'docker' is handled separately via dockerode (no Docker CLI in the container).
 const SAFE_COMMANDS = {
-  storage:   'df -h',
-  memory:    'free -h',
-  docker:    'docker system df',
-  processes: 'ps -eo pid,%cpu,%mem,comm --sort=-%cpu | head -n 15',
-  network:   'ip -brief address show || ip link show',
-  connections: 'ss -s || netstat -an | wc -l',
-  uptime:    'uptime',
+  storage:     'df -h',
+  memory:      'free -h',
+  processes:   'ps -eo pid,%cpu,%mem,comm --sort=-%cpu | head -n 15',
+  network:     'ip -brief address show',
+  connections: 'ss -s',
+  uptime:      'uptime',
 };
 
+// ── GET /api/system ───────────────────────────────────────────────────────────
 router.get('/', async (_req, res, next) => {
   try {
-    // Collect stats in parallel, catching errors on optional subsystems
-    const [cpu, mem, os, time, load, disk, temp, netInt, graphics, latency] = await Promise.all([
+    const [cpu, mem, os, time, load, disk, temp, netInt, graphics] = await Promise.all([
       si.cpu(),
       si.mem(),
       si.osInfo(),
@@ -38,8 +58,13 @@ router.get('/', async (_req, res, next) => {
       si.cpuTemperature().catch(() => ({ main: null, cores: [] })),
       si.networkInterfaces().catch(() => []),
       si.graphics().catch(() => null),
-      si.inetLatency(PING_HOST).catch(() => null),
     ]);
+
+    // Try ICMP ping first; fall back to TCP latency if it returns null
+    let latency = await si.inetLatency(PING_HOST).catch(() => null);
+    if (latency === null) {
+      latency = await tcpLatency(PING_HOST);
+    }
 
     const diskUsage = disk
       .filter(d => d.mount === '/' || d.type !== 'squashfs')
@@ -52,7 +77,6 @@ router.get('/', async (_req, res, next) => {
         use:   Math.round(d.use),
       }));
 
-    // Filter network interfaces to return only active/relevant ones
     const activeNetwork = netInt
       .filter(n => n.ip4 && n.iface !== 'lo' && !n.iface.startsWith('br-') && !n.iface.startsWith('docker'))
       .map(n => ({
@@ -63,7 +87,6 @@ router.get('/', async (_req, res, next) => {
         mac:   n.mac,
       }));
 
-    // Parse GPU/graphics card information
     const gpus = graphics?.controllers?.map(g => ({
       vendor: g.vendor,
       model:  g.model,
@@ -109,15 +132,37 @@ router.get('/', async (_req, res, next) => {
   }
 });
 
-// Safe Diagnostic Command Execution
-router.post('/diagnostics', (req, res) => {
+// ── POST /api/system/diagnostics ─────────────────────────────────────────────
+router.post('/diagnostics', async (req, res) => {
   const { commandId } = req.body;
+
+  // 'docker' is handled via dockerode – no Docker CLI in the container
+  if (commandId === 'docker') {
+    try {
+      const info = await docker.info();
+      const output = [
+        `Containers:  ${info.Containers}  (running: ${info.ContainersRunning}, paused: ${info.ContainersPaused}, stopped: ${info.ContainersStopped})`,
+        `Images:      ${info.Images}`,
+        `Docker Root: ${info.DockerRootDir}`,
+        `Storage:     ${info.Driver}`,
+        `Kernel:      ${info.KernelVersion}`,
+        `OS:          ${info.OperatingSystem}`,
+        `CPUs:        ${info.NCPU}`,
+        `Memory:      ${(info.MemTotal / 1024 / 1024 / 1024).toFixed(1)} GB`,
+      ].join('\n');
+
+      return res.json({ commandId, command: 'docker info (via socket)', output });
+    } catch (err) {
+      return res.status(500).json({ error: `Docker info failed: ${err.message}` });
+    }
+  }
+
   if (!commandId || !SAFE_COMMANDS[commandId]) {
     return res.status(400).json({ error: 'Invalid or unauthorized command ID' });
   }
 
   const cmd = SAFE_COMMANDS[commandId];
-  exec(cmd, { timeout: 5000 }, (error, stdout, stderr) => {
+  exec(cmd, { timeout: 5000, shell: '/bin/sh' }, (error, stdout, stderr) => {
     if (error) {
       return res.status(500).json({
         error:  error.message,
