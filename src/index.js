@@ -3,6 +3,7 @@ import express from 'express';
 import { router as containersRouter } from './routes/containers.js';
 import { router as systemRouter } from './routes/system.js';
 import { router as logsRouter } from './routes/logs.js';
+import { router as notesRouter } from './routes/notes.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -39,6 +40,7 @@ app.use((req, res, next) => {
 app.use('/api/containers', containersRouter);
 app.use('/api/system', systemRouter);
 app.use('/api/logs', logsRouter);
+app.use('/api/notes', notesRouter);
 
 // Health probe
 app.get('/health', (_req, res) => res.json({ status: 'ok', ts: Date.now() }));
